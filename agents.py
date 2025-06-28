@@ -42,6 +42,48 @@ class ResumeAnalysisAgent:
             print(f"Error extracting text from PDF: {e}")
             return ""
     
+    def extract_text_from_text(self, txt_file):
+        """Extract text from a text file."""
+        try:
+            if hasattr(txt_file, 'getvalue'):
+                return txt_file.getvalue().decode('utf-8')
+            else:
+                with open(txt_file, 'r', encoding='utf-8') as file:
+                    return file.read()
+        except Exception as e:
+            print(f"Error extracting text from text file: {e}")
+            return ""
+        
+    def extract_text_from_files(self, file):
+        """Extract text from a list of files."""
+        if hasattr(file, 'name'):
+            file_extension = file.name.split('.')[-1].lower()
+        else:
+            file_extension = file.split('.')[-1].lower()
+
+        if file_extension == 'pdf':
+            return self.extract_text_from_pdf(file)
+        elif file_extension == 'txt':
+            return self.extract_text_from_text(file)
+        else:
+            print(f"Unsupported file type: {file_extension}")
+            return ""
+        
+    def create_rag_vector_stor(self, text):
+        """create a vecot stor for RAG"""
+        text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=1000,
+            chunk_overlap=200,
+            length_function=len
+        )
+        chunks = text_splitter.split_text(text)
+        embeddings = GoogleGenerativeAIEmbeddings(model_name="models/embedding-001", api_key= self.api_key)
+        vectorstore = FAISS.from_texts(chunks, embeddings)
+        return vectorstore
+
+
+strr = ""
+    
 
 
 
