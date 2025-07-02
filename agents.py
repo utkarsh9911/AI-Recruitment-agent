@@ -81,8 +81,17 @@ class ResumeAnalysisAgent:
         vectorstore = FAISS.from_texts(chunks, embeddings)
         return vectorstore
 
+    def analyze_skills(self, qa_chain, skill):
+        """Analyze skills using the RAG chain."""
+        query = f"On a scale of 0-10, how clearly does the candidate mention proficiency in {skill}? Provide a numeric rating first, followed by resoning"
+        response = qa_chain.invoke({"input": query})
+        match = re.search(r'(\d+)', response['answer'])
+        score = int(match.group(1) if match else 0)
+        reasoning = response['answer'].split('\n', 1)[1].strip() if '.' in response['answer'] and len(response['answer'].split('.')) > 1 else ""
+        return score, min(score, 10), reasoning
 
-strr = ""
+
+
     
 
 
