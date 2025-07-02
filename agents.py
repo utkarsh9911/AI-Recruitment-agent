@@ -82,15 +82,94 @@ class ResumeAnalysisAgent:
         return vectorstore
 
     def analyze_skills(self, qa_chain, skill):
-        """Analyze skills using the RAG chain."""
-        query = f"On a scale of 0-10, how clearly does the candidate mention proficiency in {skill}? Provide a numeric rating first, followed by resoning"
+        
+        """Analyze a single skill using the RAG chain and return skill, score, and cleaned reasoning."""
+        
+        # Ask the chain for evaluation of the skill
+        query = f"On a scale of 0-10, how clearly does the candidate mention proficiency in {skill}? Provide a numeric rating first, followed by reasoning"
         response = qa_chain.invoke({"input": query})
+
+        # Extract numeric score from the response
         match = re.search(r'(\d+)', response['answer'])
-        score = int(match.group(1) if match else 0)
-        reasoning = response['answer'].split('\n', 1)[1].strip() if '.' in response['answer'] and len(response['answer'].split('.')) > 1 else ""
-        return score, min(score, 10), reasoning
+        score = int(match.group(1)) if match else 0
+        final_score = min(score, 10)
+
+        # Clean up the reasoning part
+        reasoning_raw = response['answer']
+        reasoning_lines = [line.strip() for line in reasoning_raw.split('\n') if line.strip()]
+        raw_reasoning = " ".join(reasoning_lines)
+
+        # Remove leading score and optional symbols
+        reasoning = re.sub(r'^\d+\s*[-.:]?\s*', '', raw_reasoning)
+
+        return skill, final_score, reasoning
+    
+    # This is not a final code need some changes
+    def analyze_resume_weaknesses(self):
+        """Analyze specific weaknesses in the resume based on missing skills"""
+        if not self.resume_text or not self.extracted_skills or not self.analysis_result:
+            return []
+        
+        weaknesses  = []
+        for skill in analysis_result.get('missing_skill', []):
+    prompt = f"""
+    Analyze why the resume is weak in demonstrating proficiency in "{skill}".
+
+    For your analysis, consider:
+    1. What's missing from the resume regarding this skill?
+    2. How could it be improved with specific examples?
+    3. What specific action items would make this skill stand out?
+
+    Provide your response in this JSON format:
+    {{
+        "weakness": "A concise description of what's missing or problematic (1-2 sentences)",
+        "improvement_suggestions": [
+            "Specific suggestion 1",
+            "Specific suggestion 2",
+            "Specific suggestion 3"
+        ],
+        "example_addition": "A specific bullet point that could be added to showcase this skill"
+    }}
+
+    Return only valid JSON, no other text.
+    """
+    
+    response = ra_chain.invoke({"input": prompt})
+    
+    # ✅ Extract string answer
+    raw_json = response['answer']
+
+    # ✅ Remove backticks and 'json' label
+    cleaned_json = re.sub(r'^```json|```$', '', raw_json.strip(), flags=re.MULTILINE).strip()
+
+    try:
+        # ✅ Parse string into dictionary
+        weakness_data = json.loads(cleaned_json)
+
+        # ✅ Store in desired format
+        weakness_detail = {
+            "skill": skill,
+            "detail": weakness_data.get("weakness", "No specific details provided."),
+            "suggestions": weakness_data.get("improvement_suggestions", []),
+            "example": weakness_data.get("example_addition", "")
+        }
+
+        weaknesses.append(weakness_detail)
+        improvement_suggestions[skill] = {
+                    "suggestions": weakness_data.get("improvement_suggestions", []),
+                    "example": weakness_data.get("example_addition", "")}
+
+    except json.JSONDecodeError as e:
+        print(f"JSON parsing failed for skill {skill}: {e}")
+        weaknesses.append({
+            "skill": skill,
+            "detail": raw_json[:200],  # fallback: first 200 characters
+            
+            "example": ""
+        })
 
 
+    
 
     
 
