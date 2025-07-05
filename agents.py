@@ -7,9 +7,16 @@ from langchain_community.vectorstores import FAISS
 from langchain.chains import RetrievalQA
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from concurrent.futures import ThreadPoolExecutor
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langchain.prompts import ChatPromptTemplate
+from langchain.chains.combine_documents import create_stuff_documents_chain
+from langchain.chains import create_retrieval_chain
 import os
 import tempfile
 import json
+
+
 
 class ResumeAnalysisAgent:
     def __init__(self, api_key, cutoff_score=75):
@@ -69,7 +76,7 @@ class ResumeAnalysisAgent:
             print(f"Unsupported file type: {file_extension}")
             return ""
         
-    def create_rag_vector_stor(self, text):
+    def create_rag_vector_store(self, text):
         """create a vecot stor for RAG"""
         text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=1000,
@@ -80,9 +87,15 @@ class ResumeAnalysisAgent:
         embeddings = GoogleGenerativeAIEmbeddings(model_name="models/embedding-001", api_key= self.api_key)
         vectorstore = FAISS.from_texts(chunks, embeddings)
         return vectorstore
+    
+    def create_vector_store(self,text):
+        """Create a simpler vector store for skill analysis"""
+        embeddings = GoogleGenerativeAIEmbeddings(model_name="models/embedding-001", api_key= self.api_key)
+        vectorstore = FAISS.from_texts([text], embeddings)
+        return vectorstore
 
     def analyze_skills(self, qa_chain, skill):
-        
+    
         """Analyze a single skill using the RAG chain and return skill, score, and cleaned reasoning."""
         
         # Ask the chain for evaluation of the skill
@@ -111,63 +124,89 @@ class ResumeAnalysisAgent:
             return []
         
         weaknesses  = []
-        for skill in analysis_result.get('missing_skill', []):
-    prompt = f"""
-    Analyze why the resume is weak in demonstrating proficiency in "{skill}".
+        for skill in self.analysis_result.get('missing_skill', []):
+            prompt = f"""
+            Analyze why the resume is weak in demonstrating proficiency in "{skill}".
 
-    For your analysis, consider:
-    1. What's missing from the resume regarding this skill?
-    2. How could it be improved with specific examples?
-    3. What specific action items would make this skill stand out?
+            For your analysis, consider:
+            1. What's missing from the resume regarding this skill?
+            2. How could it be improved with specific examples?
+            3. What specific action items would make this skill stand out?
 
-    Provide your response in this JSON format:
-    {{
-        "weakness": "A concise description of what's missing or problematic (1-2 sentences)",
-        "improvement_suggestions": [
-            "Specific suggestion 1",
-            "Specific suggestion 2",
-            "Specific suggestion 3"
-        ],
-        "example_addition": "A specific bullet point that could be added to showcase this skill"
-    }}
+            Provide your response in this JSON format:
+            {{
+                "weakness": "A concise description of what's missing or problematic (1-2 sentences)",
+                "improvement_suggestions": [
+                "Specific suggestion 1",
+                "Specific suggestion 2",
+                "Specific suggestion 3"
+            ],
+            "example_addition": "A specific bullet point that could be added to showcase this skill"
+            }}
 
-    Return only valid JSON, no other text.
-    """
+            Return only valid JSON, no other text.
+            """
     
-    response = ra_chain.invoke({"input": prompt})
+            response = ra_chain.invoke({"input": prompt})
     
-    # ✅ Extract string answer
-    raw_json = response['answer']
+            #  Extract string answer
+            raw_json = response['answer']
 
-    # ✅ Remove backticks and 'json' label
-    cleaned_json = re.sub(r'^```json|```$', '', raw_json.strip(), flags=re.MULTILINE).strip()
+            #  Remove backticks and 'json' label
+            cleaned_json = re.sub(r'^```json|```$', '', raw_json.strip(), flags=re.MULTILINE).strip()
 
-    try:
-        # ✅ Parse string into dictionary
-        weakness_data = json.loads(cleaned_json)
+            try:
+                #  Parse string into dictionary
+                weakness_data = json.loads(cleaned_json)
 
-        # ✅ Store in desired format
-        weakness_detail = {
-            "skill": skill,
-            "detail": weakness_data.get("weakness", "No specific details provided."),
-            "suggestions": weakness_data.get("improvement_suggestions", []),
-            "example": weakness_data.get("example_addition", "")
-        }
+                # Store in desired format
+                weakness_detail = {
+                "skill": skill,
+                "detail": weakness_data.get("weakness", "No specific details provided."),
+                "suggestions": weakness_data.get("improvement_suggestions", []),
+                "example": weakness_data.get("example_addition", "")
+                }
 
-        weaknesses.append(weakness_detail)
-        improvement_suggestions[skill] = {
+                weaknesses.append(weakness_detail)
+                self.improvement_suggestions[skill] = {
                     "suggestions": weakness_data.get("improvement_suggestions", []),
                     "example": weakness_data.get("example_addition", "")}
 
-    except json.JSONDecodeError as e:
-        print(f"JSON parsing failed for skill {skill}: {e}")
-        weaknesses.append({
-            "skill": skill,
-            "detail": raw_json[:200],  # fallback: first 200 characters
+            except json.JSONDecodeError as e:
             
-            "example": ""
-        })
+                weaknesses.append({
+                "skill": skill,
+                "detail": raw_json[:200],  # fallback: first 200 characters
+            
+                "example": ""
+            })
+        self.resume_weaknesses = weaknesses
+        return weaknesses
+    
+    def extract_skills_from_jd(self, jd_text):
+        """Extract skills from Job description"""
+        try:
+            llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", google_api_key=self.api_key)
+            prompt = f"""
+            Extract a comprehensive list of technical skills, technologies, and competencies required from this job description. 
+            Format the output as a Python list of strings. Only include the list, nothing else.
+            
+            Job Description:
+            {jd_text}
+            """
+            response = llm.invoke(prompt)
+            skills_text = response.content
 
+            cleaned = re.sub(r"```python|```", "", skills_text).strip()
+            
+            skills = eval(cleaned)
+            if isinstance(skills, list):
+                return skills
+        except Exception as e:
+            print(f"Error extracting skills from job description: {e}")
+            return []
+
+        
 
     
 
