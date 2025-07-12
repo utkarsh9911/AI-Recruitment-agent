@@ -327,6 +327,75 @@ class ResumeAnalysisAgent:
         
 
     
+    def generate_interview_questions(self, question_types, difficulty, num_questions):
+        """Generate interview questions based on the resume"""
+        if not self.resume_text or not self.extracted_skills:
+            return []
+        
+        try:
+            llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", google_api_key=self.api_key)
+            
+        
+            context = f"""
+            Resume Content:
+            {self.resume_text[:2000]}...
+            
+            Skills to focus on: {', '.join(self.extracted_skills)}
+            
+            Strengths: {', '.join(self.analysis_result.get('strengths', []))}
+            
+            Areas for improvement: {', '.join(self.analysis_result.get('missing_skills', []))}
+            """
+            
+            prompt = f"""
+            Generate {num_questions} personalized {difficulty.lower()} level interview questions for this candidate 
+            based on their resume and skills. Include only the following question types: {', '.join(question_types)}.
+            
+            For each question:
+            1. Clearly label the question type
+            2. Make the question specific to their background and skills
+            3. For coding questions, include a clear problem statement
+            
+            {context}
+            
+            Format the response as a list of tuples with the question type and the question itself.
+            Each tuple should be in the format: ("Question Type", "Full Question Text")
+            """
+            
+            response = llm.invoke(prompt)
+            questions_text = response.content
+
+            questions = []
+            questions_text = response.content
+
+            # Step 1: Remove any extra explanation text before the list
+            match = re.search(r"\[\s*\(", questions_text, re.DOTALL)
+            if match:
+                start_index = match.start()
+                questions_text = questions_text[start_index:]
+ 
+            # Step 2: Clean up Markdown or Python syntax
+            questions_text = re.sub(r"```(?:python)?|```", "", questions_text).strip()
+
+            # Step 3: Safely evaluate the string into a Python list
+        
+            questions_list = eval(questions_text)
+            
+            for question_type, question in questions_list:
+                for requested_type in question_types:
+                    if requested_type.lower() in question_type.lower():
+                        questions.append((question_type.strip(), question.strip()))
+                        break
+            return questions
+        except Exception as e:
+            print(f"Parsing failed: {e}")
+            return []
+
+
+
+
+            
+
 
 
 
