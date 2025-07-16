@@ -391,7 +391,278 @@ class ResumeAnalysisAgent:
             print(f"Parsing failed: {e}")
             return []
 
+    def improve_resume(self, improvement_areas, target_role=""):
+        """Generate suggestions to improve the resume"""
+        if not self.resume_text:
+            return {}
+        
+        try:
+           
+            improvements = {}
+            
+  
+            for area in improvement_areas:
+           
+                if area == "Skills Highlighting" and self.resume_weaknesses:
+                    skill_improvements = {
+                        "description": "Your resume needs to better highlight key skills that are important for the role.",
+                        "specific": []
+                    }
+                 
+                    before_after_examples = {}
+                    
+                    for weakness in self.resume_weaknesses:
+                        skill_name = weakness.get("skill", "")
+                        if "suggestions" in weakness and weakness["suggestions"]:
+                            for suggestion in weakness["suggestions"]:
+                                skill_improvements["specific"].append(f"**{skill_name}**: {suggestion}")
+                        
+                        if "example" in weakness and weakness["example"]:
+                       
+                            resume_chunks = self.resume_text.split('\n\n')
+                            relevant_chunk = ""
+                            
+                            
+                            for chunk in resume_chunks:
+                                if skill_name.lower() in chunk.lower() or "experience" in chunk.lower():
+                                    relevant_chunk = chunk
+                                    break
+                            
+                            if relevant_chunk:
+                                before_after_examples = {
+                                    "before": relevant_chunk.strip(),
+                                    "after": relevant_chunk.strip() + "\n• " + weakness["example"]
+                                }
+                    
+                    if before_after_examples:
+                        skill_improvements["before_after"] = before_after_examples
+                    
+                    improvements["Skills Highlighting"] = skill_improvements
+ 
+            remaining_areas = [area for area in improvement_areas if area not in improvements]
+            
+            if remaining_areas:
+                llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", google_api_key=self.api_key)
+                
+                # Create a context with resume analysis and weaknesses
+                weaknesses_text = ""
+                if self.resume_weaknesses:
+                    weaknesses_text = "Resume Weaknesses:\n"
+                    for i, weakness in enumerate(self.resume_weaknesses):
+                        weaknesses_text += f"{i+1}. {weakness['skill']}: {weakness['detail']}\n"
+                        if "suggestions" in weakness:
+                            for j, sugg in enumerate(weakness["suggestions"]):
+                                weaknesses_text += f"   - {sugg}\n"
+                
+                context = f"""
+                Resume Content:
+                {self.resume_text}
+                
+                Skills to focus on: {', '.join(self.extracted_skills)}
+                
+                Strengths: {', '.join(self.analysis_result.get('strengths', []))}
+                
+                Areas for improvement: {', '.join(self.analysis_result.get('missing_skills', []))}
+                
+                {weaknesses_text}
+                
+                Target role: {target_role if target_role else "Not specified"}
+                """
+                
+                prompt = f"""
+                Provide detailed suggestions to improve this resume in the following areas: {', '.join(remaining_areas)}.
+                
+                {context}
+                
+                For each improvement area, provide:
+                1. A general description of what needs improvement
+                2. 3-5 specific actionable suggestions
+                3. Where relevant, provide a before/after example
+                
+                Format the response as a JSON object with improvement areas as keys, each containing:
+                - "description": general description
+                - "specific": list of specific suggestions
+                - "before_after": (where applicable) a dict with "before" and "after" examples
+                
+                Only include the requested improvement areas that aren't already covered.
+                Focus particularly on addressing the resume weaknesses identified.
+                """
+                
+                response = llm.invoke(prompt)
+                
+                # Try to parse JSON from the response
+                ai_improvements = {}
+                
+                # Extract from markdown code blocks if present
+                json_match = re.search(r'```(?:json)?\s*([\s\S]+?)\s*```', response.content)
+                if json_match:
+                    try:
+                        ai_improvements = json.loads(json_match.group(1))
+                        # Merge with existing improvements
+                        improvements.update(ai_improvements)
+                    except json.JSONDecodeError:
+                        pass
+                
+                # If JSON parsing failed, create structured output manually
+                if not ai_improvements:
+                    sections = response.content.split("##")
+                    
+                    for section in sections:
+                        if not section.strip():
+                            continue
+                            
+                        lines = section.strip().split("\n")
+                        area = None
+                        
+                        for line in lines:
+                            if not area and line.strip():
+                                area = line.strip()
+                                improvements[area] = {
+                                    "description": "",
+                                    "specific": []
+                                }
+                            elif area and "specific" in improvements[area]:
+                                if line.strip().startswith("- "):
+                                    improvements[area]["specific"].append(line.strip()[2:])
+                                elif not improvements[area]["description"]:
+                                    improvements[area]["description"] += line.strip()
+            
+            # Ensure all requested areas are included
+            for area in improvement_areas:
+                if area not in improvements:
+                    improvements[area] = {
+                        "description": f"Improvements needed in {area}",
+                        "specific": ["Review and enhance this section"]
+                    }
+            
+            return improvements
+        
+        except Exception as e:
+            print(f"Error generating resume improvements: {e}")
+            return {area: {"description": "Error generating suggestions", "specific": []} for area in improvement_areas}
+        
+    def get_improved_resume(self, target_role="", highlight_skills=""):
+        """Generate an improved version of the resume optimized for the job description"""
+        if not self.resume_text:
+            return "Please upload and analyze a resume first."
+        
+        try:
+            # Parse highlight skills if provided
+            skills_to_highlight = []
+            if highlight_skills:
 
+                if len(highlight_skills) > 100: 
+                    self.jd_text = highlight_skills
+                    try:
+                        parsed_skills = self.extract_skills_from_jd(highlight_skills)
+                        if parsed_skills:
+                            skills_to_highlight = parsed_skills
+                        else:
+                 
+                            skills_to_highlight = [s.strip() for s in highlight_skills.split(",") if s.strip()]
+                    except:
+      
+                        skills_to_highlight = [s.strip() for s in highlight_skills.split(",") if s.strip()]
+                else:
+                    skills_to_highlight = [s.strip() for s in highlight_skills.split(",") if s.strip()]
+        
+            if not skills_to_highlight and self.analysis_result:
+
+                skills_to_highlight = self.analysis_result.get('missing_skills', [])
+  
+                skills_to_highlight.extend([
+                    skill for skill in self.analysis_result.get('strengths', [])
+                    if skill not in skills_to_highlight
+                ])
+
+                if self.extracted_skills:
+                    skills_to_highlight.extend([
+                        skill for skill in self.extracted_skills 
+                        if skill not in skills_to_highlight
+                    ])
+            
+
+            weakness_context = ""
+            improvement_examples = ""
+            
+            if self.resume_weaknesses:
+                weakness_context = "Address these specific weaknesses:\n"
+                
+                for weakness in self.resume_weaknesses:
+                    skill_name = weakness.get('skill', '')
+                    weakness_context += f"- {skill_name}: {weakness.get('detail', '')}\n"
+                    
+           
+                    if 'suggestions' in weakness and weakness['suggestions']:
+                        weakness_context += "  Suggested improvements:\n"
+                        for suggestion in weakness['suggestions']:
+                            weakness_context += f"  * {suggestion}\n"
+    
+                    if 'example' in weakness and weakness['example']:
+                        improvement_examples += f"For {skill_name}: {weakness['example']}\n\n"
+            
+    
+            llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", google_api_key=self.api_key)
+            
+     
+            jd_context = ""
+            if self.jd_text:
+                jd_context = f"Job Description:\n{self.jd_text}\n\n"
+            elif target_role:
+                jd_context = f"Target Role: {target_role}\n\n"
+            
+            prompt = f"""
+            Rewrite and improve this resume to make it highly optimized for the target job.
+            
+            {jd_context}
+            Original Resume:
+            {self.resume_text}
+            
+            Skills to highlight (in order of priority): {', '.join(skills_to_highlight)}
+            
+            {weakness_context}
+            
+            Here are specific examples of content to add:
+            {improvement_examples}
+            
+            Please improve the resume by:
+            1. Adding strong, quantifiable achievements
+            2. Highlighting the specified skills strategically for ATS scanning
+            3. Addressing all the weakness areas identified with the specific suggestions provided
+            4. Incorporating the example improvements provided above
+            5. Structuring information in a clear, professional format
+            6. Using industry-standard terminology
+            7. Ensuring all relevant experience is properly emphasized
+            8. Adding measurable outcomes and achievements
+            
+            Return only the improved resume text without any additional explanations.
+            Format the resume in a modern, clean style with clear section headings.
+            """
+            
+            response = llm.invoke(prompt)
+            improved_resume = response.content.strip()
+       
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.txt', mode='w', encoding='utf-8') as tmp:
+                tmp.write(improved_resume)
+                self.improved_resume_path = tmp.name
+            
+            return improved_resume
+        
+        except Exception as e:
+            print(f"Error generating improved resume: {e}")
+            return "Error generating improved resume. Please try again."
+
+    def cleanup(self):
+        """Clean up temporary files"""
+        try:
+            if hasattr(self, 'resume_file_path') and os.path.exists(self.resume_file_path):
+                os.unlink(self.resume_file_path)
+            
+            if hasattr(self, 'improved_resume_path') and os.path.exists(self.improved_resume_path):
+                os.unlink(self.improved_resume_path)
+        except Exception as e:
+            print(f"Error cleaning up temporary files: {e}")
+       
 
 
             
