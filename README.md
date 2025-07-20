@@ -51,7 +51,7 @@ An end-to-end AI-powered recruitment assistant that helps users optimize their r
 
 ```bash
 # 1. Clone the repo
-git clone https://github.com/yourusername/ai-recruitment-agent.git
+git clone https://github.com/utkarsh9911/ai-recruitment-agent.git
 cd ai-recruitment-agent
 
 # 2. Install dependencies
