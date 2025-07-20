@@ -134,7 +134,7 @@ def improve_resume(agent, improvement_areas, target_role):
         return {}
 
 def get_improved_resume(agent, target_role, highlight_skills):
-    """Get an improved version of the resume"""
+    """Get an improved version of the resumee"""
     try:
         with st.spinner("Creating improved resume..."):
             return agent.get_improved_resume(target_role, highlight_skills)
