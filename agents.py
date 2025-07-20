@@ -84,13 +84,13 @@ class ResumeAnalysisAgent:
             length_function=len
         )
         chunks = text_splitter.split_text(text)
-        embeddings = GoogleGenerativeAIEmbeddings(model_name="models/embedding-001", api_key= self.api_key)
+        embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001", google_api_key= self.api_key)
         vectorstore = FAISS.from_texts(chunks, embeddings)
         return vectorstore
     
-    def create_vector_store(text):
+    def create_vector_store(self, text):
         """Create a simpler vector store for skill analysis"""
-        embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001", google_api_key=GOOGLE_API_KEYY)
+        embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001", google_api_key= self.api_key)
         text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=1000,      # Maximum size of each chunk
         chunk_overlap=200,    # Overlap between chunks to maintain context
